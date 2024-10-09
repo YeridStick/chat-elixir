@@ -1,95 +1,227 @@
-Guía didáctica para tu proyecto ElixirChat, explicando cada archivo y su función. Esta guía te ayudará a entender cómo funciona cada parte del proyecto.
+Creación de un Chat en Tiempo Real con Elixir y Angular
 
-Guía del Proyecto ElixirChat
-============================
+1. Configuración del Backend (Elixir)
+-------------------------------------
 
-1. Estructura del Proyecto
---------------------------
-Tu proyecto ElixirChat tiene la siguiente estructura básica:
+1.1. Actualiza las dependencias en `mix.exs`:
+
+
+
+```elixir
+defp deps do
+  [
+    {:plug_cowboy, "~> 2.7"},
+    {:jason, "~> 1.4"},
+    {:websock_adapter, "~> 0.5.7"},
+    {:cors_plug, "~> 3.0"}
+  ]
+end
 
 ```
-elixir_chat/
-├── lib/
-│   ├── elixir_chat/
-│   │   ├── application.ex
-│   │   ├── chat_room.ex
-│   │   ├── chat_supervisor.ex
-│   │   ├── router.ex
-│   │   └── socket_handler.ex
-│   └── elixir_chat.ex
-├── priv/
-│   └── static/
-│       └── index.html
-└── mix.exs
+
+1.2. Ejecuta `mix deps.get` para instalar las nuevas dependencias.
+
+1.3. Configura el Router (`lib/elixir_chat/router.ex`):
+
+
+
+```elixir
+defmodule ElixirChat.Router do
+  use Plug.Router
+
+  plug CORSPlug, origin: ["http://localhost:4200"]
+
+  plug Plug.Parsers,
+    parsers: [:json],
+    pass: ["application/json"],
+    json_decoder: Jason
+
+  plug :match
+  plug :dispatch
+
+  get "/api/messages" do
+    messages = ElixirChat.ChatRoom.get_messages()
+    send_resp(conn, 200, Jason.encode!(messages))
+  end
+
+  post "/api/messages" do
+    {:ok, body, conn} = read_body(conn)
+    case Jason.decode(body) do
+      {:ok, %{"body" => message_body}} ->
+        ElixirChat.ChatRoom.broadcast(%{event: "new_msg", body: message_body})
+        send_resp(conn, 201, Jason.encode!(%{status: "sent", message: message_body}))
+      _ ->
+        send_resp(conn, 400, Jason.encode!(%{error: "Invalid message format"}))
+    end
+  end
+
+  get "/websocket" do
+    conn = Plug.Conn.fetch_query_params(conn)
+    WebSockAdapter.upgrade(conn, ElixirChat.SocketHandler, [], timeout: 60_000)
+  end
+
+  match _ do
+    send_resp(conn, 404, Jason.encode!(%{error: "Not found"}))
+  end
+end
+
 ```
 
-2. Archivos y sus Funciones
----------------------------
+1.4. Actualiza el ChatRoom (`lib/elixir_chat/chat_room.ex`):
 
-### mix.exs
-Este archivo es el corazón de tu proyecto Elixir. Define las dependencias y la configuración del proyecto.
 
-- `project/0`: Define metadatos del proyecto como nombre, versión y versión de Elixir.
-- `application/0`: Especifica las aplicaciones extras y el módulo de inicio.
-- `deps/0`: Lista las dependencias del proyecto (plug_cowboy, jason, websock_adapter).
 
-### lib/elixir_chat/application.ex
-Este módulo inicia y supervisa todos los procesos de tu aplicación.
+```elixir
+defmodule ElixirChat.ChatRoom do
+  use GenServer
 
-- `start/2`: Función de inicio que arranca los procesos hijos (ChatRoom y el servidor web Cowboy).
-- Define la estrategia de supervisión (one_for_one).
+  def start_link(_) do
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
+  end
 
-### lib/elixir_chat/chat_room.ex
-Implementa la lógica del chat usando un GenServer.
+  def init(_) do
+    {:ok, %{messages: [], clients: MapSet.new()}}
+  end
 
-- `start_link/1`: Inicia el proceso del chat room.
-- `init/1`: Inicializa el estado del chat (lista de clientes vacía).
-- `join/1`, `leave/1`, `broadcast/1`: Funciones para unirse, salir y enviar mensajes.
-- `handle_call/3`, `handle_cast/2`: Manejan las operaciones del chat.
+  def get_messages do
+    GenServer.call(__MODULE__, :get_messages)
+  end
 
-### lib/elixir_chat/chat_supervisor.ex
-Supervisa el proceso ChatRoom (aunque actualmente no se usa directamente en application.ex).
+  def broadcast(message) do
+    GenServer.cast(__MODULE__, {:broadcast, message})
+  end
 
-- `start_link/1`: Inicia el supervisor.
-- `init/1`: Define los procesos hijos a supervisar (ChatRoom).
+  def handle_call(:get_messages, _from, state) do
+    {:reply, state.messages, state}
+  end
 
-### lib/elixir_chat/router.ex
-Define las rutas HTTP para tu aplicación web.
+  def handle_cast({:broadcast, message}, state) do
+    new_message = Map.put(message, :timestamp, :os.system_time(:millisecond))
+    new_state = %{state | messages: [new_message | state.messages]}
+    Enum.each(state.clients, &send(&1, {:broadcast, new_message}))
+    {:noreply, new_state}
+  end
 
-- Usa `Plug.Router` para definir rutas.
-- `get "/"`: Sirve el archivo HTML principal.
-- `get "/websocket"`: Maneja la actualización a conexión WebSocket.
+  # ... (otros métodos como join y leave)
+end
 
-### lib/elixir_chat/socket_handler.ex
-Maneja las conexiones WebSocket individuales.
+```
 
-- `init/1`: Se llama cuando se establece una nueva conexión WebSocket.
-- `handle_in/2`: Procesa los mensajes entrantes del WebSocket.
-- `handle_info/2`: Maneja mensajes internos (como broadcasts).
-- `terminate/2`: Se llama cuando se cierra una conexión WebSocket.
+2. Configuración del Frontend (Angular)
+---------------------------------------
 
-### priv/static/index.html
-La interfaz de usuario HTML para el chat. Contiene:
-- Un área para mostrar mensajes.
-- Un campo de entrada para escribir mensajes.
-- JavaScript para manejar la conexión WebSocket y la interfaz de usuario.
+2.1. Crea un servicio para manejar la comunicación con el backend:
 
-3. Flujo de la Aplicación
--------------------------
-1. Cuando inicias la aplicación, `application.ex` arranca el `ChatRoom` y el servidor web.
-2. Cuando un usuario accede a "/", el `Router` sirve `index.html`.
-3. El JavaScript en `index.html` establece una conexión WebSocket con "/websocket".
-4. `SocketHandler` maneja esta conexión, uniéndose al `ChatRoom`.
-5. Cuando un usuario envía un mensaje, va a través de `SocketHandler` al `ChatRoom`.
-6. `ChatRoom` distribuye el mensaje a todos los `SocketHandler`s conectados.
-7. Cada `SocketHandler` envía el mensaje a su cliente WebSocket respectivo.
 
-4. Cómo Ejecutar el Proyecto
-----------------------------
-1. Asegúrate de tener Elixir instalado.
-2. En la terminal, navega al directorio del proyecto.
-3. Ejecuta `mix deps.get` para obtener las dependencias.
-4. Inicia el servidor con `iex -S mix`.
-5. Abre un navegador y ve a `http://localhost:4000`.
 
-Esta guía proporciona una visión general de cómo funciona tu aplicación de chat en tiempo real. Cada archivo juega un papel crucial en el funcionamiento del sistema, desde manejar conexiones web hasta gestionar la lógica del chat en sí.
+```typescript
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable, BehaviorSubject } from 'rxjs';
+import { webSocket, WebSocketSubject } from 'rxjs/webSocket';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ChatService {
+  private apiUrl = 'http://localhost:4000/api';
+  private wsUrl = 'ws://localhost:4000/websocket';
+  private socket$: WebSocketSubject<any>;
+  private messagesSubject = new BehaviorSubject<any[]>([]);
+
+  constructor(private http: HttpClient) {
+    this.socket$ = webSocket(this.wsUrl);
+    this.socket$.subscribe(
+      msg => this.handleNewMessage(msg),
+      err => console.error(err),
+      () => console.log('WebSocket connection closed')
+    );
+  }
+
+  getMessages(): Observable<any[]> {
+    return this.messagesSubject.asObservable();
+  }
+
+  sendMessage(message: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/messages`, { body: message });
+  }
+
+  private handleNewMessage(msg: any) {
+    const currentMessages = this.messagesSubject.value;
+    this.messagesSubject.next([...currentMessages, msg]);
+  }
+
+  loadInitialMessages() {
+    this.http.get<any[]>(`${this.apiUrl}/messages`).subscribe(
+      messages => this.messagesSubject.next(messages),
+      error => console.error('Error loading messages', error)
+    );
+  }
+}
+
+```
+
+2.2. Crea un componente para el chat:
+
+
+
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { ChatService } from './chat.service';
+
+@Component({
+  selector: 'app-chat',
+  template: `
+    <div *ngFor="let message of messages">
+      {{ message.body }}
+    </div>
+    <input #messageInput (keyup.enter)="sendMessage(messageInput.value); messageInput.value = ''">
+    <button (click)="sendMessage(messageInput.value); messageInput.value = ''">Send</button>
+  `
+})
+export class ChatComponent implements OnInit {
+  messages: any[] = [];
+
+  constructor(private chatService: ChatService) {}
+
+  ngOnInit() {
+    this.chatService.getMessages().subscribe(messages => {
+      this.messages = messages;
+    });
+    this.chatService.loadInitialMessages();
+  }
+
+  sendMessage(message: string) {
+    if (message.trim()) {
+      this.chatService.sendMessage(message).subscribe(
+        response => console.log('Message sent', response),
+        error => console.error('Error sending message', error)
+      );
+    }
+  }
+}
+
+```
+
+3. Iniciar la Aplicación
+------------------------
+
+3.1. Inicia el servidor Elixir:
+```
+iex -S mix
+```
+
+3.2. Inicia la aplicación Angular:
+```
+ng serve
+```
+
+3.3. Abre un navegador y ve a `http://localhost:4200` para usar la aplicación de chat.
+
+Esta guía actualizada incluye:
+- Configuración de CORS en el backend Elixir.
+- Implementación de endpoints REST para obtener y enviar mensajes.
+- Un servicio Angular para manejar la comunicación HTTP y WebSocket con el backend.
+- Un componente Angular básico para la interfaz de usuario del chat.
+
+Recuerda que esta es una implementación básica y puede necesitar ajustes adicionales para manejar errores, reconexiones de WebSocket, y otras consideraciones de producción.
