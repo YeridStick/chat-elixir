@@ -2,9 +2,9 @@ defmodule ElixirChat.SocketHandler do
   @behaviour WebSock
 
   @impl WebSock
-  def init(_args) do
+  def init(args) do
     ElixirChat.ChatRoom.join(self())
-    {:ok, %{}}
+    {:ok, args}
   end
 
   @impl WebSock

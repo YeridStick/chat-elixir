@@ -6,7 +6,7 @@ defmodule ElixirChat.ChatRoom do
   end
 
   def init(_) do
-    {:ok, %{clients: MapSet.new()}}
+    {:ok, %{clients: MapSet.new(), messages: []}}
   end
 
   def join(pid) do
@@ -21,9 +21,17 @@ defmodule ElixirChat.ChatRoom do
     GenServer.cast(__MODULE__, {:broadcast, message})
   end
 
+  def get_messages do
+    GenServer.call(__MODULE__, :get_messages)
+  end
+
   def handle_call({:join, pid}, _from, state) do
     new_state = %{state | clients: MapSet.put(state.clients, pid)}
     {:reply, :ok, new_state}
+  end
+
+  def handle_call(:get_messages, _from, state) do
+    {:reply, Enum.reverse(state.messages), state}
   end
 
   def handle_cast({:leave, pid}, state) do
@@ -32,9 +40,11 @@ defmodule ElixirChat.ChatRoom do
   end
 
   def handle_cast({:broadcast, message}, state) do
+    new_message = Map.put(message, :timestamp, :os.system_time(:millisecond))
+    new_state = %{state | messages: [new_message | state.messages]}
     Enum.each(state.clients, fn pid ->
-      send(pid, {:broadcast, message})
+      send(pid, {:broadcast, new_message})
     end)
-    {:noreply, state}
+    {:noreply, new_state}
   end
 end
