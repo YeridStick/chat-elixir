@@ -3,7 +3,7 @@ defmodule ElixirChat.Mensaje do
   import Ecto.Changeset
 
   schema "mensajes" do
-    field :descripcion, :string
+    field :body, :string
     field :fecha, :utc_datetime
 
     timestamps()
@@ -11,7 +11,7 @@ defmodule ElixirChat.Mensaje do
 
   def changeset(mensaje, attrs) do
     mensaje
-    |> cast(attrs, [:descripcion, :fecha])
-    |> validate_required([:descripcion, :fecha])
+    |> cast(attrs, [:body, :fecha])
+    |> validate_required([:body, :fecha])
   end
 end

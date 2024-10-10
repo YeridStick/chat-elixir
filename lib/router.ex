@@ -17,6 +17,11 @@ defmodule ElixirChat.Router do
     send_resp(conn, 200, Jason.encode!(messages))
   end
 
+  delete "/api/messages" do
+    ElixirChat.ChatRoom.delete_all_messages()
+    send_resp(conn, 200, Jason.encode!(%{status: "success", message: "All messages deleted"}))
+  end
+
   post "/api/messages" do
     IO.puts("Received params: #{inspect(conn.params)}")  # Línea de depuración
     case conn.params do

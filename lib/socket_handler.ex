@@ -1,15 +1,13 @@
 defmodule ElixirChat.SocketHandler do
   @behaviour WebSock
 
-  @impl WebSock
-  def init(args) do
+  def init(state) do
     ElixirChat.ChatRoom.join(self())
-    {:ok, args}
+    {:ok, state}
   end
 
-  @impl WebSock
-  def handle_in({data, [opcode: :text]}, state) do
-    case Jason.decode(data) do
+  def handle_in({text, _opts}, state) do
+    case Jason.decode(text) do
       {:ok, %{"event" => "new_msg", "body" => body}} ->
         ElixirChat.ChatRoom.broadcast(%{event: "new_msg", body: body})
         {:ok, state}
@@ -18,14 +16,12 @@ defmodule ElixirChat.SocketHandler do
     end
   end
 
-  @impl WebSock
-  def handle_info({:broadcast, message}, state) do
+  def handle_info({:new_message, message}, state) do
     {:push, {:text, Jason.encode!(message)}, state}
   end
 
-  @impl WebSock
-  def terminate(_reason, state) do
+  def terminate(_reason, _state) do
     ElixirChat.ChatRoom.leave(self())
-    {:ok, state}
+    :ok
   end
 end

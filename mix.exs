@@ -25,7 +25,9 @@ defmodule ElixirChat.MixProject do
       {:plug_cowboy, "~> 2.7"},
       {:jason, "~> 1.4"},
       {:websock_adapter, "~> 0.5.7"},
-      {:cors_plug, "~> 3.0"}
+      {:cors_plug, "~> 3.0"},
+      {:ecto_sql, "~> 3.12"},
+      {:postgrex, "~> 0.19.1"}
     ]
   end
 end
