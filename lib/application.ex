@@ -3,6 +3,7 @@ defmodule ElixirChat.Application do
 
   def start(_type, _args) do
     children = [
+      ElixirChat.Repo,
       ElixirChat.ChatRoom,
       {Plug.Cowboy, scheme: :http, plug: ElixirChat.Router, options: [port: 4000]}
     ]
